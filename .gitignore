@@ -4,3 +4,12 @@ config.json
 __pycache__
 *.py[cod]
 *$py.class
+env/
+audio_cache/*
+image_cache/*
+!audio_cache/.placeholder
+!image_cache/.placeholder
+credentials.json
+token.json
+run_service.bat
+SetupVirtualEnv_run_once.bat

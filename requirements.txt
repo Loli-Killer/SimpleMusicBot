@@ -1,0 +1,8 @@
+discord.py
+pathvalidate
+mutagen
+youtube_dl
+aiogoogle
+pynacl
+loguru
+Pillow

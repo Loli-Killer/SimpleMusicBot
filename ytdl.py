@@ -1,16 +1,21 @@
+import os
 import asyncio
 import functools
 
 import discord
 import youtube_dl
 from discord.ext import commands
+from pathvalidate import sanitize_filename
+
+from main import logger
 
 youtube_dl.utils.bug_reports_message = lambda: ''
 
 class YTDLError(Exception):
     pass
 
-class YTDLSource(discord.PCMVolumeTransformer):
+class YTDLSource:
+
     YTDL_OPTIONS = {
         'format': 'bestaudio/best',
         'extractaudio': True,
@@ -20,7 +25,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         'noplaylist': True,
         'nocheckcertificate': True,
         'ignoreerrors': False,
-        'logtostderr': False,
+        'logtostderr': True,
         'quiet': True,
         'no_warnings': True,
         'default_search': 'ytsearch',
@@ -34,37 +39,15 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
     ytdl = youtube_dl.YoutubeDL(YTDL_OPTIONS)
 
-    def __init__(self, ctx: commands.Context, source: discord.FFmpegPCMAudio, *, data: dict, volume: float = 0.5):
-        super().__init__(source, volume)
-
-        self.requester = ctx.author
-        self.channel = ctx.channel
-        self.data = data
-
-        self.uploader = data.get('uploader')
-        self.uploader_url = data.get('uploader_url')
-        date = data.get('upload_date')
-        self.upload_date = date[6:8] + '.' + date[4:6] + '.' + date[0:4]
-        self.title = data.get('title')
-        self.thumbnail = data.get('thumbnail')
-        self.description = data.get('description')
-        self.duration = self.parse_duration(int(data.get('duration')))
-        self.tags = data.get('tags')
-        self.url = data.get('webpage_url')
-        self.views = data.get('view_count')
-        self.likes = data.get('like_count')
-        self.dislikes = data.get('dislike_count')
-        self.stream_url = data.get('url')
-
-    def __str__(self):
-        return '**{0.title}** by **{0.uploader}**'.format(self)
-
     @classmethod
-    async def create_source(cls, ctx: commands.Context, search: str, *, loop: asyncio.BaseEventLoop = None):
+    async def create_source(cls, search: str, *, loop: asyncio.BaseEventLoop = None):
         loop = loop or asyncio.get_event_loop()
 
         partial = functools.partial(cls.ytdl.extract_info, search, download=False, process=False)
-        data = await loop.run_in_executor(None, partial)
+        try:
+            data = await loop.run_in_executor(None, partial)
+        except:
+            return
 
         if data is None:
             raise YTDLError('Couldn\'t find anything that matches `{}`'.format(search))
@@ -97,8 +80,77 @@ class YTDLSource(discord.PCMVolumeTransformer):
                     info = processed_info['entries'].pop(0)
                 except IndexError:
                     raise YTDLError('Couldn\'t retrieve any matches for `{}`'.format(webpage_url))
-        
-        return cls(ctx, discord.FFmpegPCMAudio(info['url'], **cls.FFMPEG_OPTIONS), data=info)
+
+        sorted_info = await cls.sort_info(info, webpage_url)
+        return sorted_info
+
+    @classmethod
+    async def sort_info(cls, data: dict, search: str):
+        name = sanitize_filename(data['title'])
+        expected_filename = name + ".mp3"
+
+        thumbnail = data['thumbnail']
+        duration = int(data['duration'])
+
+        info = {
+            "search" : search,
+            "artist" : "Unknown",
+            "uploader" : data['uploader'],
+            "title" : name,
+            "webpage_url" : data['webpage_url'],
+            "duration" : duration,
+            "thumbnail" : thumbnail,
+            "expected_filename" : expected_filename
+        }
+
+        return info
+
+    @classmethod
+    async def ready_download(cls, data: dict):
+
+        logger.info(f"Started downloading {data.search}")
+        if not os.path.isfile(f"audio_cache\\{data.expected_filename}"):
+            download_info = cls.YTDL_OPTIONS.copy()
+            download_info['outtmpl'] = f"audio_cache\\{data.expected_filename}"
+            with youtube_dl.YoutubeDL(download_info) as ydl:
+                ydl.extract_info(data.search)
+        logger.info(f"Downloaded {data.search}")
+
+        return data
+
+    @classmethod
+    async def get_playlist(cls, search: str, *, loop: asyncio.BaseEventLoop = None):
+        loop = loop or asyncio.get_event_loop()
+
+        partial = functools.partial(cls.ytdl.extract_info, search, download=False, process=False)
+        data = await loop.run_in_executor(None, partial)
+
+        if data is None:
+            raise YTDLError('Couldn\'t find anything that matches `{}`'.format(search))
+
+        sources = []
+        for entry in data['entries']:
+            sources.append(entry['url'])
+
+        return sources
+
+    @classmethod
+    async def get_playlist_info(cls, search: str, *, loop: asyncio.BaseEventLoop = None):
+        loop = loop or asyncio.get_event_loop()
+
+        partial = functools.partial(cls.ytdl.extract_info, search, download=False, process=False)
+        data = await loop.run_in_executor(None, partial)
+
+        if data is None:
+            raise YTDLError('Couldn\'t find anything that matches `{}`'.format(search))
+
+        video_entries = list(data['entries'])
+        info = {
+            "title" : data['name'],
+            "song_num" : len(video_entries)
+        }
+
+        return info
 
     @classmethod
     async def search_source(cls, bot: commands.Bot, ctx: commands.Context, search: str, *, loop: asyncio.BaseEventLoop = None):
@@ -115,7 +167,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         cls.search["type"] = 'rich'
         cls.search["color"] = 7506394
         cls.search["author"] = {'name': f'{ctx.author.name}', 'url': f'{ctx.author.avatar_url}', 'icon_url': f'{ctx.author.avatar_url}'}
-        
+
         lst = []
 
         for e in info['entries']:
@@ -132,7 +184,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
         def check(msg):
             return msg.content.isdigit() == True and msg.channel == channel or msg.content == 'cancel' or msg.content == 'Cancel'
-        
+
         try:
             m = await bot.wait_for('message', check=check, timeout=45.0)
 
@@ -169,17 +221,17 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
             duration = []
             if days > 0:
-                duration.append('{}'.format(days))
+                duration.append('{}'.format(days).zfill(2))
             if hours > 0:
-                duration.append('{}'.format(hours))
+                duration.append('{}'.format(hours).zfill(2))
             if minutes > 0:
-                duration.append('{}'.format(minutes))
+                duration.append('{}'.format(minutes).zfill(2))
             if seconds > 0:
-                duration.append('{}'.format(seconds))
-            
+                duration.append('{}'.format(seconds).zfill(2))
+
             value = ':'.join(duration)
-        
+
         elif duration == 0:
             value = "LIVE"
-        
+
         return value
