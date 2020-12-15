@@ -71,12 +71,20 @@ class GDriveSource:
 
         logger.info(f"Started downloading {data.search}")
         await cls.refresh_token()
+        logger.info(data.expected_filename)
         if not os.path.isfile(f"audio_cache\\{data.expected_filename}"):
             async with Aiogoogle(user_creds=cls.user_creds) as aiogoogle:
                 drive_v3 = await aiogoogle.discover('drive', 'v3')
-                await aiogoogle.as_user(
-                    drive_v3.files.get(fileId=data.search, download_file=f"audio_cache\\{data.expected_filename}", alt="media")
-                )
+                try:
+                    await aiogoogle.as_user(
+                        drive_v3.files.get(fileId=data.search, download_file=f"audio_cache\\{data.expected_filename}", alt="media")
+                    )
+                except Exception as e:
+                    if str(e) == "Line is too long":
+                        pass
+                    else:
+                        logger.info(e)
+                        pass
         logger.info(f"Downloaded {data.search}")
 
         tags = MP3(f"audio_cache\\{data.expected_filename}")
