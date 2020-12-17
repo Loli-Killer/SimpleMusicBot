@@ -2,50 +2,48 @@ import os
 import asyncio
 import functools
 
-import discord
 import youtube_dl
-from discord.ext import commands
 from pathvalidate import sanitize_filename
 
-from main import logger
+from main import INFO
 
 youtube_dl.utils.bug_reports_message = lambda: ''
+YTDL_OPTIONS = {
+    'format': 'bestaudio/best',
+    'extractaudio': True,
+    'audioformat': 'mp3',
+    'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+    'restrictfilenames': True,
+    'noplaylist': True,
+    'nocheckcertificate': True,
+    'ignoreerrors': False,
+    'logtostderr': True,
+    'quiet': True,
+    'no_warnings': True,
+    'default_search': 'ytsearch',
+    'source_address': '0.0.0.0',
+}
 
 class YTDLError(Exception):
     pass
 
 class YTDLSource:
 
-    YTDL_OPTIONS = {
-        'format': 'bestaudio/best',
-        'extractaudio': True,
-        'audioformat': 'mp3',
-        'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
-        'restrictfilenames': True,
-        'noplaylist': True,
-        'nocheckcertificate': True,
-        'ignoreerrors': False,
-        'logtostderr': True,
-        'quiet': True,
-        'no_warnings': True,
-        'default_search': 'ytsearch',
-        'source_address': '0.0.0.0',
-    }
+    def __init__(self, loop: asyncio.BaseEventLoop = None):
 
-    FFMPEG_OPTIONS = {
-        'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-        'options': '-vn',
-    }
+        self.FFMPEG_OPTIONS = {
+            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+            'options': '-vn',
+        }
 
-    ytdl = youtube_dl.YoutubeDL(YTDL_OPTIONS)
+        self.ytdl = youtube_dl.YoutubeDL(YTDL_OPTIONS)
+        self.loop = loop
 
-    @classmethod
-    async def create_source(cls, search: str, *, loop: asyncio.BaseEventLoop = None):
-        loop = loop or asyncio.get_event_loop()
+    async def create_source(self, search: str):
 
-        partial = functools.partial(cls.ytdl.extract_info, search, download=False, process=False)
+        partial = functools.partial(self.ytdl.extract_info, search, download=False, process=False)
         try:
-            data = await loop.run_in_executor(None, partial)
+            data = await self.loop.run_in_executor(None, partial)
         except:
             return
 
@@ -65,8 +63,8 @@ class YTDLSource:
                 raise YTDLError('Couldn\'t find anything that matches `{}`'.format(search))
 
         webpage_url = process_info['webpage_url']
-        partial = functools.partial(cls.ytdl.extract_info, webpage_url, download=False)
-        processed_info = await loop.run_in_executor(None, partial)
+        partial = functools.partial(self.ytdl.extract_info, webpage_url, download=False)
+        processed_info = await self.loop.run_in_executor(None, partial)
 
         if processed_info is None:
             raise YTDLError('Couldn\'t fetch `{}`'.format(webpage_url))
@@ -81,11 +79,11 @@ class YTDLSource:
                 except IndexError:
                     raise YTDLError('Couldn\'t retrieve any matches for `{}`'.format(webpage_url))
 
-        sorted_info = await cls.sort_info(info, webpage_url)
+        sorted_info = await self.sort_info(info, webpage_url)
         return sorted_info
 
-    @classmethod
-    async def sort_info(cls, data: dict, search: str):
+    @staticmethod
+    async def sort_info(data: dict, search: str):
         name = sanitize_filename(data['title'])
         expected_filename = name + ".mp3"
 
@@ -105,25 +103,22 @@ class YTDLSource:
 
         return info
 
-    @classmethod
-    async def ready_download(cls, data: dict):
+    async def ready_download(self, data: dict):
 
-        logger.info(f"Started downloading {data.search}")
+        INFO(f"Started downloading {data.title} from {data.search}")
         if not os.path.isfile(f"audio_cache\\{data.expected_filename}"):
-            download_info = cls.YTDL_OPTIONS.copy()
+            download_info = YTDL_OPTIONS.copy()
             download_info['outtmpl'] = f"audio_cache\\{data.expected_filename}"
             with youtube_dl.YoutubeDL(download_info) as ydl:
                 ydl.extract_info(data.search)
-        logger.info(f"Downloaded {data.search}")
+        INFO(f"Downloaded {data.title}")
 
         return data
 
-    @classmethod
-    async def get_playlist(cls, search: str, *, loop: asyncio.BaseEventLoop = None):
-        loop = loop or asyncio.get_event_loop()
+    async def get_playlist(self, search: str):
 
-        partial = functools.partial(cls.ytdl.extract_info, search, download=False, process=False)
-        data = await loop.run_in_executor(None, partial)
+        partial = functools.partial(self.ytdl.extract_info, search, download=False, process=False)
+        data = await self.loop.run_in_executor(None, partial)
 
         if data is None:
             raise YTDLError('Couldn\'t find anything that matches `{}`'.format(search))
@@ -134,12 +129,10 @@ class YTDLSource:
 
         return sources
 
-    @classmethod
-    async def get_playlist_info(cls, search: str, *, loop: asyncio.BaseEventLoop = None):
-        loop = loop or asyncio.get_event_loop()
+    async def get_playlist_info(self, search: str):
 
-        partial = functools.partial(cls.ytdl.extract_info, search, download=False, process=False)
-        data = await loop.run_in_executor(None, partial)
+        partial = functools.partial(self.ytdl.extract_info, search, download=False, process=False)
+        data = await self.loop.run_in_executor(None, partial)
 
         if data is None:
             raise YTDLError('Couldn\'t find anything that matches `{}`'.format(search))
@@ -152,6 +145,7 @@ class YTDLSource:
 
         return info
 
+"""
     @classmethod
     async def search_source(cls, bot: commands.Bot, ctx: commands.Context, search: str, *, loop: asyncio.BaseEventLoop = None):
         channel = ctx.channel
@@ -197,7 +191,7 @@ class YTDLSource:
                 if 0 < sel <= 10:
                     for key, value in info.items():
                         if key == 'entries':
-                            """data = value[sel - 1]"""
+                            "data = value[sel - 1]"
                             VId = value[sel - 1]['id']
                             VUrl = 'https://www.youtube.com/watch?v=%s' % (VId)
                             partial = functools.partial(cls.ytdl.extract_info, VUrl, download=False)
@@ -235,3 +229,5 @@ class YTDLSource:
             value = "LIVE"
 
         return value
+
+"""

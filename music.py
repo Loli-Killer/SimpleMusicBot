@@ -3,10 +3,10 @@ import random
 
 import discord
 from discord.ext import commands
-from loguru import logger
 
 import SourceDL
 import voice
+from main import INFO
 
 class Music(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -43,8 +43,8 @@ class Music(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        if message.author.id != self.bot.user.id:
-            logger.info(f"{message.guild}/{message.channel}/{message.author.name}>{message.content}")
+        if message.author.id != self.bot.user.id and message.content.startswith("`"):
+            INFO(f"{message.guild}/{message.channel}/{message.author.name}>{message.content}")
             #if message.embeds:
             #    print(message.embeds[0].to_dict())
 
@@ -61,7 +61,6 @@ class Music(commands.Cog):
         ctx.voice_state.voice = await destination.connect()
 
     @commands.command(name='summon')
-    @commands.has_permissions(manage_guild=True)
     async def _summon(self, ctx: commands.Context, *, channel: discord.VoiceChannel = None):
         """Summons the bot to a voice channel.
         If no channel was specified, it joins your channel.
@@ -286,43 +285,51 @@ class Music(commands.Cog):
 
         async with ctx.typing():
             song_url, source_type, playlist = SourceDL.get_type(search)
+            source_init = SourceDL.Source(ctx, source_type=source_type, loop=self.bot.loop)
 
             if playlist:
-                playlist_info = await SourceDL.Source.get_playlist_info(song_url, loop=self.bot.loop, source_type=source_type)
+                playlist_info = await source_init.get_playlist_info(song_url)
+                playlist_message = await ctx.send(f'Queuing {playlist_info.title}')
                 try:
-                    sources = SourceDL.Source.get_playlist(ctx, song_url, loop=self.bot.loop, source_type=source_type)
+                    sources = await source_init.get_playlist(song_url)
                 except SourceDL.SourceError as e:
                     await ctx.send('An error occurred while processing this request: {}'.format(str(e)))
-                else:
-                    if not ctx.voice_state.voice:
-                        await ctx.invoke(self._join)
-
-                    async for each_source in sources:
-                        song = voice.Song(each_source)
-                        await ctx.voice_state.songs.put(song)
-
-                    color_list = [c for c in voice.colors.values()]
-                    embed = (
-                        discord.Embed(
-                            description=f'Enqueued {playlist_info.song_num} songs from {playlist_info.title} by {ctx.author.name}',
-                            color=random.choice(color_list)
-                        )
-                    )
-                    await ctx.send(embed=embed, delete_after=5)
-                    await ctx.message.delete(delay=5)
+                    return
             else:
+                sources = [song_url]
+
+            for each_source in sources:
                 try:
-                    source = await SourceDL.Source.create_source(ctx, song_url, loop=self.bot.loop, source_type=source_type)
+                    source = await source_init.create_source(each_source)
                 except SourceDL.SourceError as e:
                     await ctx.send('An error occurred while processing this request: {}'.format(str(e)))
+                    continue
                 else:
                     if not ctx.voice_state.voice:
                         await ctx.invoke(self._join)
 
                     song = voice.Song(source)
                     await ctx.voice_state.songs.put(song)
-                    await ctx.send('Enqueued {} by {}'.format(str(source.data.title), str(ctx.author.name)), delete_after=5)
-                    await ctx.message.delete(delay=5)
+
+            color_list = [c for c in voice.colors.values()]
+            if playlist:
+                embed = (
+                    discord.Embed(
+                        description=f'Enqueued {playlist_info.song_num} songs from {playlist_info.title} by {ctx.author.name}',
+                        color=random.choice(color_list)
+                    )
+                )
+                playlist_message.delete()
+            else:
+                embed = (
+                    discord.Embed(
+                        description=f'Enqueued {sources[0].data.title} by {ctx.author.name}',
+                        color=random.choice(color_list)
+                    )
+                )
+
+            await ctx.send(embed=embed, delete_after=10)
+            await ctx.message.delete(delay=10)
 
     @_join.before_invoke
     @_play.before_invoke

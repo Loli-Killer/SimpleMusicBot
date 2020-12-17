@@ -7,7 +7,8 @@ from loguru import logger
 import music
 
 bot = commands.Bot(command_prefix='`', description="Music Bot")
-logger = logger
+INFO = logger.info
+DEBUG = logger.debug
 
 @bot.event
 async def on_ready():

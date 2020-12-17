@@ -7,7 +7,7 @@ from async_timeout import timeout
 from discord.ext import commands
 
 import SourceDL
-from main import load_file, logger
+from main import load_file, INFO
 
 colors = {
   'DEFAULT': 0x000000,
@@ -169,34 +169,36 @@ class VoiceState:
                 # the player will disconnect due to performance
                 # reasons.
                 try:
-                    async with timeout(10):  # 3 minutes
+                    async with timeout(5):  # 3 minutes
                         self.current = await self.songs.get()
                 except asyncio.TimeoutError:
                     self.current = None
                     if self._autoplay:
-                        logger.info("Fetching autoplay List")
+                        INFO("Fetching autoplay List")
                         if not self.autoplaylist:
                             self.autoplaylist = list(load_file("autoplaylist.txt"))
                         while self.autoplaylist:
                             random_link = random.choice(self.autoplaylist)
-                            logger.info(f"Trying {random_link} from autoplaylist")
+                            INFO(f"Trying {random_link} from autoplaylist")
                             self.autoplaylist.remove(random_link)
                             song_url, source_type, playlist = SourceDL.get_type(random_link)
+                            source_init = SourceDL.Source(self._ctx, source_type=source_type, loop=self.bot.loop)
                             if playlist:
-                                playlist_info = await SourceDL.Source.get_playlist_info(song_url, loop=self.bot.loop, source_type=source_type)
-                                logger.info(f"Adding {playlist_info.song_num} songs from {random_link}")
+                                playlist_info = await source_init.get_playlist_info(song_url)
+                                INFO(f"Adding {playlist_info.song_num} songs from {random_link}")
                                 try:
-                                    sources = SourceDL.Source.get_playlist(self._ctx, song_url, loop=self.bot.loop, source_type=source_type)
+                                    sources = await source_init.get_playlist(song_url)
                                 except SourceDL.SourceError:
-                                    pass
+                                    continue
                                 else:
-                                    async for each_source in sources:
-                                        song = Song(each_source)
-                                        await self._ctx.voice_state.songs.put(song)
-                                self.songs.shuffle()
+                                    if source_type == "GDrive":
+                                        for num, each_source in enumerate(sources):
+                                            sources[num] = f"https://drive.google.com/file/d/{each_source}/view"
+                                self.autoplaylist = sources
+                                continue
                             else:
                                 try:
-                                    source = await SourceDL.Source.create_source(self._ctx, song_url, loop=self.bot.loop, source_type=source_type)
+                                    source = await source_init.create_source(song_url)
                                 except SourceDL.SourceError:
                                     pass
                                 else:
@@ -229,7 +231,6 @@ class VoiceState:
                     self.previous_message = await self.current.source.channel.send(embed=embed, file=thumbnail)
                 else:
                     self.previous_message = await self.current.source.channel.send(embed=embed)
-
             await self.next.wait()
 
     def play_next_song(self, error=None):

@@ -34,62 +34,32 @@ class DataClass:
     def __init__(self, **info):
         self.__dict__.update(info)
 
-class SourceError(Exception):
-    pass
-
-class Source:
-
-    def __init__(self, ctx: commands.Context, *, data: dict, source_type: str):
+class MusicInfo:
+    def __init__(
+        self,
+        ctx: commands.Context,
+        source_type: str,
+        data: dict,
+        gdrive: gdrive.GDriveSource,
+        youtube: ytdl.YTDLSource
+    ):
 
         self.requester = ctx.author
         self.channel = ctx.channel
         self.bot = ctx.bot
+        self.source_type = source_type
         self.data = data
-        self.type = source_type
-
-    @classmethod
-    async def create_source(cls, ctx: commands.Context, search: str, *, loop: asyncio.BaseEventLoop = None, source_type: str):
-        loop = loop or asyncio.get_event_loop()
-
-        if source_type == "GDrive":
-            info = await gdrive.GDriveSource.create_source(search=search, loop=loop)
-        elif source_type == "YouTube":
-            info = await ytdl.YTDLSource.create_source(search=search, loop=loop)
-
-        return cls(ctx, data=DataClass(**info), source_type=source_type)
+        self.gdrive = gdrive
+        self.youtube = youtube
 
     async def ready_download(self):
-        if self.type == "GDrive":
-            self.data = await gdrive.GDriveSource.ready_download(self.data)
-        elif self.type == "YouTube":
-            self.data = await ytdl.YTDLSource.ready_download(self.data)
+
+        if self.source_type == "GDrive":
+            self.data = await self.gdrive.ready_download(self.data)
+        elif self.source_type == "YouTube":
+            self.data = await self.youtube.ready_download(self.data)
+
         self.data.duration = self.parse_duration(self.data.duration)
-
-    @classmethod
-    async def get_playlist_info(cls, search: str, *, loop: asyncio.BaseEventLoop = None, source_type: str):
-        loop = loop or asyncio.get_event_loop()
-
-        if source_type == "GDrive":
-            info = await gdrive.GDriveSource.get_playlist_info(search=search, loop=loop)
-        elif source_type == "YouTube":
-            info = await ytdl.YTDLSource.get_playlist_info(search=search, loop=loop)
-
-        info = DataClass(**info)
-        return info
-
-    @classmethod
-    async def get_playlist(cls, ctx: commands.Context, search: str, *, loop: asyncio.BaseEventLoop = None, source_type: str):
-        loop = loop or asyncio.get_event_loop()
-
-        if source_type == "GDrive":
-            sources = await gdrive.GDriveSource.get_playlist(search=search, loop=loop)
-        elif source_type == "YouTube":
-            sources = await ytdl.YTDLSource.get_playlist(search=search, loop=loop)
-
-        for url in sources:
-            source = await cls.create_source(ctx, url, loop=loop, source_type=source_type)
-            if source:
-                yield source
 
     @staticmethod
     def parse_duration(duration: int):
@@ -116,3 +86,46 @@ class Source:
             value = "LIVE"
 
         return value
+
+class SourceError(Exception):
+    pass
+
+class Source:
+
+    def __init__(self, ctx: commands.Context, source_type: str, loop: asyncio.BaseEventLoop = None):
+
+        self.ctx = ctx
+        self.loop = loop or asyncio.get_event_loop()
+        self.source_type = source_type
+        self.gdrive = gdrive.GDriveSource()
+        self.youtube = ytdl.YTDLSource(self.loop)
+
+    async def create_source(self, search: str):
+
+        if self.source_type == "GDrive":
+            info = await self.gdrive.create_source(search=search)
+        elif self.source_type == "YouTube":
+            info = await self.youtube.create_source(search=search)
+
+        data = DataClass(**info)
+
+        return MusicInfo(self.ctx, self.source_type, data, self.gdrive, self.youtube)
+
+    async def get_playlist_info(self, search: str):
+
+        if self.source_type == "GDrive":
+            info = await self.gdrive.get_playlist_info(search=search)
+        elif self.source_type == "YouTube":
+            info = await self.youtube.get_playlist_info(search=search)
+
+        info = DataClass(**info)
+        return info
+
+    async def get_playlist(self, search: str):
+
+        if self.source_type == "GDrive":
+            sources = await self.gdrive.get_playlist(search=search)
+        elif self.source_type == "YouTube":
+            sources = await self.youtube.get_playlist(search=search)
+
+        return sources

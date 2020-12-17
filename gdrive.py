@@ -1,40 +1,37 @@
-import asyncio
 import os
 import json
 import time
 from io import BytesIO
 
-from discord.ext import commands
 from pathvalidate import sanitize_filename
 from aiogoogle import Aiogoogle
 from PIL import Image
 from mutagen.mp3 import MP3
 
-from main import logger
+from main import INFO
 
 class GDriveError(Exception):
     pass
 
 class GDriveSource:
 
-    with open("credentials.json") as f:
-        client_creds = json.load(f)
+    def __init__(self):
+        with open("credentials.json") as f:
+            self.client_creds = json.load(f)
 
-    with open("token.json") as f:
-        user_creds = json.load(f)
+        with open("token.json") as f:
+            self.user_creds = json.load(f)
 
-    refreshtoken = user_creds['refresh_token']
+        self.refreshtoken = self.user_creds['refresh_token']
 
-    refreshed = False
-    refreshed_time = None
-    process = None
+        self.refreshed = False
+        self.refreshed_time = None
+        self.process = None
 
-    @classmethod
-    async def create_source(cls, search: str, *, loop: asyncio.BaseEventLoop = None):
-        loop = loop or asyncio.get_event_loop()
-        await cls.refresh_token()
+    async def create_source(self, search: str):
+        await self.refresh_token()
 
-        async with Aiogoogle(user_creds=cls.user_creds) as aiogoogle:
+        async with Aiogoogle(user_creds=self.user_creds) as aiogoogle:
             drive_v3 = await aiogoogle.discover('drive', 'v3')
             data = await aiogoogle.as_user(
                 drive_v3.files.get(
@@ -44,7 +41,7 @@ class GDriveSource:
                 )
             )
 
-        sorted_info = await cls.sort_info(data, search)
+        sorted_info = await self.sort_info(data, search)
         return sorted_info
 
     @staticmethod
@@ -66,14 +63,12 @@ class GDriveSource:
 
         return info
 
-    @classmethod
-    async def ready_download(cls, data: dict):
+    async def ready_download(self, data: dict):
 
-        logger.info(f"Started downloading {data.search}")
-        await cls.refresh_token()
-        logger.info(data.expected_filename)
-        if not os.path.isfile(f"audio_cache\\{data.expected_filename}"):
-            async with Aiogoogle(user_creds=cls.user_creds) as aiogoogle:
+        INFO(f"Started downloading {data.title} from {data.search}")
+        await self.refresh_token()
+        while not os.path.isfile(f"audio_cache\\{data.expected_filename}"):
+            async with Aiogoogle(user_creds=self.user_creds) as aiogoogle:
                 drive_v3 = await aiogoogle.discover('drive', 'v3')
                 try:
                     await aiogoogle.as_user(
@@ -83,9 +78,8 @@ class GDriveSource:
                     if str(e) == "Line is too long":
                         pass
                     else:
-                        logger.info(e)
-                        pass
-        logger.info(f"Downloaded {data.search}")
+                        INFO(e)
+        INFO(f"Downloaded {data.title}")
 
         tags = MP3(f"audio_cache\\{data.expected_filename}")
         if not os.path.isfile(f"image_cache\\{data.title}.jpg"):
@@ -105,12 +99,10 @@ class GDriveSource:
 
         return data
 
-    @classmethod
-    async def get_playlist(cls, search: str, *, loop: asyncio.BaseEventLoop = None):
-        loop = loop or asyncio.get_event_loop()
-        await cls.refresh_token()
+    async def get_playlist(self, search: str):
+        await self.refresh_token()
 
-        async with Aiogoogle(user_creds=cls.user_creds) as aiogoogle:
+        async with Aiogoogle(user_creds=self.user_creds) as aiogoogle:
             drive_v3 = await aiogoogle.discover('drive', 'v3')
             data = await aiogoogle.as_user(
                 drive_v3.files.list(
@@ -132,12 +124,10 @@ class GDriveSource:
 
         return sources
 
-    @classmethod
-    async def get_playlist_info(cls, search: str, *, loop: asyncio.BaseEventLoop = None):
-        loop = loop or asyncio.get_event_loop()
-        await cls.refresh_token()
+    async def get_playlist_info(self, search: str):
+        await self.refresh_token()
 
-        async with Aiogoogle(user_creds=cls.user_creds) as aiogoogle:
+        async with Aiogoogle(user_creds=self.user_creds) as aiogoogle:
             drive_v3 = await aiogoogle.discover('drive', 'v3')
             folder_data = await aiogoogle.as_user(
                 drive_v3.files.get(
@@ -147,7 +137,7 @@ class GDriveSource:
                 )
             )
 
-        async with Aiogoogle(user_creds=cls.user_creds) as aiogoogle:
+        async with Aiogoogle(user_creds=self.user_creds) as aiogoogle:
             drive_v3 = await aiogoogle.discover('drive', 'v3')
             file_data = await aiogoogle.as_user(
                 drive_v3.files.list(
@@ -170,18 +160,17 @@ class GDriveSource:
 
         return data
 
-    @classmethod
-    async def refresh_token(cls):
-        if cls.refreshed:
-            time_passed = int(cls.refreshed_time - time.time())
-            if time_passed < 3000:
+    async def refresh_token(self):
+        if self.refreshed:
+            time_passed = int(self.refreshed_time - time.time())
+            if time_passed < 2000:
                 return
 
-        async with Aiogoogle(user_creds=cls.user_creds, client_creds=cls.client_creds) as aiogoogle:
-            creds = await aiogoogle.oauth2.refresh(cls.user_creds, cls.client_creds)
-        creds['refresh_token'] = cls.refreshtoken
-        cls.user_creds = creds
-        cls.refreshed_time = time.time()
-        cls.refreshed = True
+        async with Aiogoogle(user_creds=self.user_creds, client_creds=self.client_creds) as aiogoogle:
+            creds = await aiogoogle.oauth2.refresh(self.user_creds, self.client_creds)
+        creds['refresh_token'] = self.refreshtoken
+        self.user_creds = creds
+        self.refreshed_time = time.time()
+        self.refreshed = True
         with open("token.json", 'w') as f:
             json.dump(creds, f)
