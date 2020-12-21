@@ -81,7 +81,10 @@ class GDriveSource:
                         INFO(e)
         INFO(f"Downloaded {data.title}")
 
-        tags = MP3(f"audio_cache\\{data.expected_filename}")
+        try:
+            tags = MP3(f"audio_cache\\{data.expected_filename}")
+        except:
+            return data
         if not os.path.isfile(f"image_cache\\{data.title}.jpg"):
             try:
                 pic = tags.get("APIC:") or tags.get('APIC:"Album cover"')

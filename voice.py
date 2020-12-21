@@ -7,7 +7,7 @@ from async_timeout import timeout
 from discord.ext import commands
 
 import SourceDL
-from main import load_file, INFO
+from main import load_file, INFO, config
 
 colors = {
   'DEFAULT': 0x000000,
@@ -174,6 +174,17 @@ class VoiceState:
                 except asyncio.TimeoutError:
                     self.current = None
                     if self._autoplay:
+                        if not self.voice:
+                            if not config["auto_join_channels"]:
+                                self.bot.loop.create_task(self.stop())
+                                self.exists = False
+                                return
+                            for each_channel in config["auto_join_channels"]:
+                                channel = await self.bot.fetch_channel(each_channel)
+                                channel_guild = channel.guild.id
+                                if channel_guild == self._ctx.guild.id:
+                                    self.voice = await channel.connect()
+                                    break
                         INFO("Fetching autoplay List")
                         if not self.autoplaylist:
                             self.autoplaylist = list(load_file("autoplaylist.txt"))

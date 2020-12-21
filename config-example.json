@@ -1,4 +1,6 @@
 {
     "README": "Make a duplicate of this file and save it as config.json. Then configure the bot however you want",
-    "token" : "token-goes-here"
+    "token" : "token-goes-here",
+    "prefix" : ["`"],
+    "auto_join_channels" : ["channel-id-goes-here"]
 }

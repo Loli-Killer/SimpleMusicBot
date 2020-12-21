@@ -6,9 +6,12 @@ from loguru import logger
 
 import music
 
-bot = commands.Bot(command_prefix='`', description="Music Bot")
+with open('config.json') as f:
+    config = json.load(f)
+
 INFO = logger.info
 DEBUG = logger.debug
+bot = commands.Bot(command_prefix=config["prefix"], description="Music Bot")
 
 @bot.event
 async def on_ready():
@@ -18,10 +21,7 @@ async def on_ready():
     bot.add_cog(music.Music(bot))
 
 def main():
-    with open('config.json') as fh:
-        bot.config = json.load(fh)
-
-    bot.run(bot.config['token'])
+    bot.run(config['token'])
 
 def load_file(filename, skip_commented_lines=True, comment_char='#'):
     try:

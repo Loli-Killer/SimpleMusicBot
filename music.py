@@ -6,7 +6,7 @@ from discord.ext import commands
 
 import SourceDL
 import voice
-from main import INFO
+from main import INFO, config
 
 class Music(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -43,7 +43,7 @@ class Music(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        if message.author.id != self.bot.user.id and message.content.startswith("`"):
+        if message.author.id != self.bot.user.id and message.content.startswith(tuple(config["prefix"])):
             INFO(f"{message.guild}/{message.channel}/{message.author.name}>{message.content}")
             #if message.embeds:
             #    print(message.embeds[0].to_dict())
@@ -148,10 +148,11 @@ class Music(commands.Cog):
         3 skip votes are needed for the song to be skipped.
         """
 
-        await ctx.message.delete(delay=5)
+        await ctx.message.delete(delay=20)
         if not ctx.voice_state.is_playing:
             return await ctx.send('Not playing any music right now...', delete_after=5)
 
+        await ctx.message.add_reaction('⏭')
         ctx.voice_state.skip()
 
     @commands.command(name='queue', aliases=['q'])
@@ -258,7 +259,7 @@ class Music(commands.Cog):
 
         def is_possible_command_invoke(entry):
             valid_call = any(
-                entry.content.startswith(prefix) for prefix in ["`"])  # can be expanded
+                entry.content.startswith(prefix) for prefix in config["prefix"])  # can be expanded
             return valid_call and not entry.content[1:2].isspace()
 
         delete_invokes = True
@@ -298,7 +299,7 @@ class Music(commands.Cog):
             else:
                 sources = [song_url]
 
-            for each_source in sources:
+            for source_num, each_source in enumerate(sources):
                 try:
                     source = await source_init.create_source(each_source)
                 except SourceDL.SourceError as e:
@@ -310,6 +311,7 @@ class Music(commands.Cog):
 
                     song = voice.Song(source)
                     await ctx.voice_state.songs.put(song)
+                    sources[source_num] = source
 
             color_list = [c for c in voice.colors.values()]
             if playlist:
