@@ -87,11 +87,12 @@ class GDriveSource:
             return data
         if not os.path.isfile(f"image_cache\\{data.title}.jpg"):
             try:
-                pic = tags.get("APIC:") or tags.get('APIC:"Album cover"')
+                pic_key = [key for key in list(tags.keys()) if "APIC" in key][0]
+                pic = tags.get(pic_key)
                 im = Image.open(BytesIO(pic.data))
                 im.save(f"image_cache\\{data.title}.jpg")
             except:
-                pass
+                data.thumbnail = "https://webrandum.net/mskz/wp-content/uploads/pz-linkcard/cache/7232681e168b08a699569b8291bbeaa3c0435198368ccf2b11fa8cca02e5e115"
 
         try:
             data.artist = tags.get('TPE1').text[0]
