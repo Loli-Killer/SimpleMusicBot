@@ -48,29 +48,24 @@ class Music(commands.Cog):
             #if message.embeds:
             #    print(message.embeds[0].to_dict())
 
-    @commands.command(name='join', invoke_without_subcommand=True)
+    @commands.command(name='join', aliases=['summon'], invoke_without_subcommand=True)
     async def _join(self, ctx: commands.Context):
         """Joins a voice channel."""
 
-        destination = ctx.author.voice.channel
+        if not ctx.author.voice:
+            if config["auto_join_channels"]:
+                for each_channel in config["auto_join_channels"]:
+                    channel = await ctx.bot.fetch_channel(each_channel)
+                    channel_guild = channel.guild.id
+                    if channel_guild == ctx.guild.id:
+                        destination = channel
+                        break
+        else:
+            destination = ctx.author.voice.channel
 
-        if ctx.voice_state.voice:
-            await ctx.voice_state.voice.move_to(destination)
-            return
-
-        ctx.voice_state.voice = await destination.connect()
-
-    @commands.command(name='summon')
-    async def _summon(self, ctx: commands.Context, *, channel: discord.VoiceChannel = None):
-        """Summons the bot to a voice channel.
-        If no channel was specified, it joins your channel.
-        """
-
-        await ctx.message.delete(delay=5)
-        if not channel and not ctx.author.voice:
+        if not destination:
             raise voice.VoiceError('You are neither connected to a voice channel nor specified a channel to join.', delete_after=5)
 
-        destination = channel or ctx.author.voice.channel
         if ctx.voice_state.voice:
             await ctx.voice_state.voice.move_to(destination)
             return
@@ -270,8 +265,8 @@ class Music(commands.Cog):
                 return delete_all or message.author == ctx.author
             return message.author == self.bot.user
 
-        if ctx.channel.permissions_for(ctx.guild.me).manage_messages:
-            deleted = await ctx.channel.purge(check=check, limit=search_range, before=ctx.message)
+        deleted = []
+        deleted = await ctx.channel.purge(check=check, limit=search_range, before=ctx.message)
 
         await ctx.send('Cleaned up {0} message{1}.'.format(len(deleted), 's' * bool(deleted)), delete_after=15)
 
@@ -333,7 +328,6 @@ class Music(commands.Cog):
             await ctx.send(embed=embed, delete_after=10)
             await ctx.message.delete(delay=10)
 
-    @_join.before_invoke
     @_play.before_invoke
     async def ensure_voice_state(self, ctx: commands.Context):
         if not ctx.author.voice or not ctx.author.voice.channel:

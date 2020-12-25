@@ -175,16 +175,9 @@ class VoiceState:
                     self.current = None
                     if self._autoplay:
                         if not self.voice:
-                            if not config["auto_join_channels"]:
-                                self.bot.loop.create_task(self.stop())
-                                self.exists = False
-                                return
-                            for each_channel in config["auto_join_channels"]:
-                                channel = await self.bot.fetch_channel(each_channel)
-                                channel_guild = channel.guild.id
-                                if channel_guild == self._ctx.guild.id:
-                                    self.voice = await channel.connect()
-                                    break
+                            self.bot.loop.create_task(self.stop())
+                            self.exists = False
+                            return
                         INFO("Fetching autoplay List")
                         if not self.autoplaylist:
                             self.autoplaylist = list(load_file("autoplaylist.txt"))
@@ -246,7 +239,14 @@ class VoiceState:
 
     def play_next_song(self, error=None):
         if error:
-            raise VoiceError(str(error))
+            if str(error) == "str, bytes or bytearray expected, not NoneType":
+                vcs = self._ctx.guild.voice_channels
+                for vc in vcs:
+                    if self.bot in vc.members:
+                        self.voice = vc.connect()
+                        break
+            if not self.voice:
+                raise VoiceError(str(error))
 
         self.next.set()
 
