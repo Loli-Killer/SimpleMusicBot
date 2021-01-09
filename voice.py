@@ -7,7 +7,7 @@ from async_timeout import timeout
 from discord.ext import commands
 
 import SourceDL
-from main import load_file, INFO, config
+from main import load_file, config
 
 colors = {
   'DEFAULT': 0x000000,
@@ -160,81 +160,77 @@ class VoiceState:
                 await self.previous_message.delete()
                 self.previous_message = None
 
-            if not self.loop:
-                # If autoplay is turned on wait 3 seconds for a new song.
-                # If no song is found find a new one,
-                # else if autoplay is turned off try to get the
-                # next song within 3 minutes.
-                # If no song will be added to the queue in time,
-                # the player will disconnect due to performance
-                # reasons.
-                try:
-                    async with timeout(5):  # 3 minutes
-                        self.current = await self.songs.get()
-                except asyncio.TimeoutError:
-                    self.current = None
-                    if self._autoplay:
-                        if not self.voice:
-                            self.bot.loop.create_task(self.stop())
-                            self.exists = False
-                            return
-                        INFO("Fetching autoplay List")
-                        if not self.autoplaylist:
-                            self.autoplaylist = list(load_file("autoplaylist.txt"))
-                        while self.autoplaylist:
-                            random_link = random.choice(self.autoplaylist)
-                            INFO(f"Trying {random_link} from autoplaylist")
-                            self.autoplaylist.remove(random_link)
-                            song_url, source_type, playlist = SourceDL.get_type(random_link)
-                            source_init = SourceDL.Source(self._ctx, source_type=source_type, loop=self.bot.loop)
-                            if playlist:
-                                playlist_info = await source_init.get_playlist_info(song_url)
-                                INFO(f"Adding {playlist_info.song_num} songs from {random_link}")
-                                try:
-                                    sources = await source_init.get_playlist(song_url)
-                                except SourceDL.SourceError:
-                                    continue
-                                else:
-                                    if source_type == "GDrive":
-                                        for num, each_source in enumerate(sources):
-                                            sources[num] = f"https://drive.google.com/file/d/{each_source}/view"
-                                self.autoplaylist = sources
-                                continue
-                            else:
-                                try:
-                                    source = await source_init.create_source(song_url)
-                                except SourceDL.SourceError:
-                                    pass
-                                else:
-                                    song = Song(source)
-                                    await self._ctx.voice_state.songs.put(song)
-                            self.current = await self.songs.get()
-                            if self.current:
-                                break
-                            continue
-                        if not self.current:
-                            self.bot.loop.create_task(self.stop())
-                            self.exists = False
-                            return
-                    else:
+            if self._loop:
+                if self.current:
+                    await self.songs.put(self.current)
+
+            try:
+                async with timeout(5):
+                    self.current = await self.songs.get()
+            except asyncio.TimeoutError:
+                self.current = None
+                if self._autoplay:
+                    if not self.voice:
                         self.bot.loop.create_task(self.stop())
                         self.exists = False
                         return
-                for each_song in self.song_history:
-                    if self.current.source.data.title == each_song.source.data.title:
-                        self.song_history.remove(each_song)
-                self.song_history.insert(0, self.current)
-                self.current.source.volume = self._volume
-                await self.current.source.ready_download()
-                with open(f"audio_cache\\{self.current.source.data.expected_filename}", 'rb') as f:
-                    source = discord.FFmpegPCMAudio(f, pipe=True)
-                self.voice.play(source, after=self.play_next_song)
-                #await self.current.source.bot.change_presence(activity=discord.Game(f"{self.current.source.title}"))
-                embed, thumbnail = self.current.create_embed()
-                if thumbnail:
-                    self.previous_message = await self.current.source.channel.send(embed=embed, file=thumbnail)
+                    INFO("Fetching autoplay List")
+                    if not self.autoplaylist:
+                        self.autoplaylist = list(load_file("autoplaylist.txt"))
+                    while self.autoplaylist:
+                        random_link = random.choice(self.autoplaylist)
+                        INFO(f"Trying {random_link} from autoplaylist")
+                        self.autoplaylist.remove(random_link)
+                        song_url, source_type, playlist = SourceDL.get_type(random_link)
+                        source_init = SourceDL.Source(self._ctx, source_type=source_type, loop=self.bot.loop)
+                        if playlist:
+                            playlist_info = await source_init.get_playlist_info(song_url)
+                            INFO(f"Adding {playlist_info.song_num} songs from {random_link}")
+                            try:
+                                sources = await source_init.get_playlist(song_url)
+                            except SourceDL.SourceError:
+                                continue
+                            else:
+                                if source_type == "GDrive":
+                                    for num, each_source in enumerate(sources):
+                                        sources[num] = f"https://drive.google.com/file/d/{each_source}/view"
+                            self.autoplaylist = sources
+                            continue
+                        else:
+                            try:
+                                source = await source_init.create_source(song_url)
+                            except SourceDL.SourceError:
+                                pass
+                            else:
+                                song = Song(source)
+                                await self._ctx.voice_state.songs.put(song)
+                        self.current = await self.songs.get()
+                        if self.current:
+                            break
+                        continue
+                    if not self.current:
+                        self.bot.loop.create_task(self.stop())
+                        self.exists = False
+                        return
                 else:
-                    self.previous_message = await self.current.source.channel.send(embed=embed)
+                    self.bot.loop.create_task(self.stop())
+                    self.exists = False
+                    return
+            for each_song in self.song_history:
+                if self.current.source.data.title == each_song.source.data.title:
+                    self.song_history.remove(each_song)
+            self.song_history.insert(0, self.current)
+            self.current.source.volume = self._volume
+            await self.current.source.ready_download()
+            with open(f"audio_cache\\{self.current.source.data.expected_filename}", 'rb') as f:
+                source = discord.FFmpegPCMAudio(f, pipe=True)
+            self.voice.play(source, after=self.play_next_song)
+            #await self.current.source.bot.change_presence(activity=discord.Game(f"{self.current.source.title}"))
+            embed, thumbnail = self.current.create_embed()
+            if thumbnail:
+                self.previous_message = await self.current.source.channel.send(embed=embed, file=thumbnail)
+            else:
+                self.previous_message = await self.current.source.channel.send(embed=embed)
             await self.next.wait()
 
     def play_next_song(self, error=None):

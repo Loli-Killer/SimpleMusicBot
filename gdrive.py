@@ -103,7 +103,7 @@ class GDriveSource:
 
         return data
 
-    async def get_playlist(self, search: str):
+    async def get_playlist(self, search: str, include_name: bool = False):
         await self.refresh_token()
 
         async with Aiogoogle(user_creds=self.user_creds) as aiogoogle:
@@ -123,8 +123,15 @@ class GDriveSource:
             raise GDriveError('Couldn\'t find anything that matches `{}`'.format(search))
 
         sources = []
-        for entry in data['files']:
-            sources.append(entry['id'])
+        if not include_name:
+            for entry in data['files']:
+                sources.append(entry['id'])
+        else:
+            for entry in data['files']:
+                sources.append({
+                    "id" : entry['id'],
+                    "name" : entry['name']
+                })
 
         return sources
 

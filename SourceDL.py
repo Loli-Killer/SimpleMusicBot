@@ -2,32 +2,59 @@ import asyncio
 import re
 
 from discord.ext import commands
+from validator_collection import checkers
 
 import ytdl
 import gdrive
+from main import config
 
-def get_type(search: str):
+async def parse_search(ctx, search: str, loop: asyncio.BaseEventLoop = None):
 
-    if re.match(r"https:\/\/drive\.google\.com\/(drive\/folders\/|open\?id=|drive\/u\/\d\/folders\/)([\da-zA-Z-_]+)", search):
-        search = re.match(r"https:\/\/drive\.google\.com\/(drive\/folders\/|open\?id=|drive\/u\/\d\/folders\/)([\da-zA-Z-_]+)", search).group(2)
+    loop = loop or asyncio.get_event_loop()
+    source_type = "GDrive"
+    if checkers.is_url(search):
+        return search
+
+    gdrive_folder_id = config['gdrive_id']
+    if not gdrive_folder_id:
+        return search
+
+    source_init = Source(ctx, source_type=source_type, loop=loop)
+    try:
+        sources = await source_init.get_playlist(gdrive_folder_id, include_name=True)
+    except SourceError as e:
+        await ctx.send('An error occurred while processing this request: {}'.format(str(e)))
+        return search
+
+    for each_source in sources:
+        if search.lower() in each_source['name'].lower():
+            search = f"https://drive.google.com/file/d/{each_source['id']}/view"
+            break
+
+    return search
+
+def get_type(parsed_search: str):
+
+    if re.match(r"https:\/\/drive\.google\.com\/(drive\/folders\/|open\?id=|drive\/u\/\d\/folders\/)([\da-zA-Z-_]+)", parsed_search):
+        parsed_search = re.match(r"https:\/\/drive\.google\.com\/(drive\/folders\/|open\?id=|drive\/u\/\d\/folders\/)([\da-zA-Z-_]+)", parsed_search).group(2)
         playlist = True
         source_type = "GDrive"
-    elif re.match(r"https:\/\/drive\.google\.com\/(file\/d\/)([\da-zA-Z-_]+)", search):
-        search = re.match(r"https:\/\/drive\.google\.com\/(file\/d\/)([\da-zA-Z-_]+)", search).group(2)
+    elif re.match(r"https:\/\/drive\.google\.com\/(file\/d\/)([\da-zA-Z-_]+)", parsed_search):
+        parsed_search = re.match(r"https:\/\/drive\.google\.com\/(file\/d\/)([\da-zA-Z-_]+)", parsed_search).group(2)
         playlist = False
         source_type = "GDrive"
     else:
         source_type = "YouTube"
         playlistRegex = r'watch\?v=.+&(list=[^&]+)'
-        matches = re.search(playlistRegex, search)
+        matches = re.search(playlistRegex, parsed_search)
         groups = matches.groups() if matches is not None else []
-        search = "https://www.youtube.com/playlist?" + groups[0] if len(groups) > 0 else search
-        if "www.youtube.com/playlist" in search:
+        parsed_search = "https://www.youtube.com/playlist?" + groups[0] if len(groups) > 0 else parsed_search
+        if "www.youtube.com/playlist" in parsed_search:
             playlist = True
         else:
             playlist = False
 
-    return search, source_type, playlist
+    return parsed_search, source_type, playlist
 
 class DataClass:
 
@@ -121,10 +148,10 @@ class Source:
         info = DataClass(**info)
         return info
 
-    async def get_playlist(self, search: str):
+    async def get_playlist(self, search: str, include_name: bool = False):
 
         if self.source_type == "GDrive":
-            sources = await self.gdrive.get_playlist(search=search)
+            sources = await self.gdrive.get_playlist(search=search, include_name=include_name)
         elif self.source_type == "YouTube":
             sources = await self.youtube.get_playlist(search=search)
 

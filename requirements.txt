@@ -6,3 +6,4 @@ aiogoogle
 pynacl
 loguru
 Pillow
+validator-collection

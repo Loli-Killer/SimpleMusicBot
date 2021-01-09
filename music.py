@@ -157,22 +157,26 @@ class Music(commands.Cog):
         """
 
         await ctx.message.delete(delay=5)
-        if len(ctx.voice_state.songs) == 0:
+        song_queue = voice.SongQueue()
+        await song_queue.put(ctx.voice_state.current)
+        for song in ctx.voice_state.songs:
+            await song_queue.put(song)
+        if len(song_queue) == 0:
             return await ctx.send('Empty queue.', delete_after=5)
 
         items_per_page = 10
-        pages = math.ceil(len(ctx.voice_state.songs) / items_per_page)
+        pages = math.ceil(len(song_queue) / items_per_page)
 
         start = (page - 1) * items_per_page
         end = start + items_per_page
 
         queue = ''
-        for i, song in enumerate(ctx.voice_state.songs[start:end], start=start):
+        for i, song in enumerate(song_queue[start:end], start=start):
             queue += f'`{i+1}.` [**{song.source.data.title}**]({song.source.data.webpage_url})\n'
 
         embed = (
             discord.Embed(
-                description='**{} tracks:**\n\n{}'.format(len(ctx.voice_state.songs), queue)
+                description='**{} tracks:**\n\n{}'.format(len(song_queue), queue)
             )
             .set_footer(text='Viewing page {}/{}'.format(page, pages))
         )
@@ -228,8 +232,8 @@ class Music(commands.Cog):
 
     @commands.command(name='loop')
     async def _loop(self, ctx: commands.Context):
-        """Loops the currently playing song.
-        Invoke this command again to unloop the song.
+        """Loops the queue.
+        Invoke this command again to unloop the queue.
         """
 
         await ctx.message.delete(delay=5)
@@ -238,7 +242,7 @@ class Music(commands.Cog):
 
         # Inverse boolean value to loop and unloop.
         ctx.voice_state.loop = not ctx.voice_state.loop
-        await ctx.send('Looping a song is now turned ' + ('on' if ctx.voice_state.loop else 'off'), delete_after=5)
+        await ctx.send('Currently ' + ('' if ctx.voice_state.loop else 'not ') + 'looping queue.', delete_after=5)
 
     @commands.command(name='clean')
     async def _clean(self, ctx: commands.Context, *, search_range: int = 50):
@@ -273,6 +277,7 @@ class Music(commands.Cog):
     @commands.command(name='play', aliases=['p'])
     async def _play(self, ctx: commands.Context, *, search: str):
         """Plays a song.
+        Searches from configured gdrive folder first if not url. If not found, search on youtube instead.
         If there are songs in the queue, this will be queued until the
         other songs finished playing.
         This command automatically searches from various sites if no URL is provided.
@@ -280,7 +285,8 @@ class Music(commands.Cog):
         """
 
         async with ctx.typing():
-            song_url, source_type, playlist = SourceDL.get_type(search)
+            parsed_search = await SourceDL.parse_search(ctx, search, self.bot.loop)
+            song_url, source_type, playlist = SourceDL.get_type(parsed_search)
             source_init = SourceDL.Source(ctx, source_type=source_type, loop=self.bot.loop)
 
             if playlist:
