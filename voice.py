@@ -7,7 +7,7 @@ from async_timeout import timeout
 from discord.ext import commands
 
 import SourceDL
-from main import load_file, config
+from main import load_file, INFO
 
 colors = {
   'DEFAULT': 0x000000,
